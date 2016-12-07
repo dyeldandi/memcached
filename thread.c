@@ -432,11 +432,11 @@ void item_flush_expired() {
 /*
  * Dumps part of the cache
  */
-char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
+char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int offset, unsigned int lru, unsigned int *bytes) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_cachedump(slabs_clsid, limit, bytes);
+    ret = do_item_cachedump(slabs_clsid, limit, offset, lru, bytes);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

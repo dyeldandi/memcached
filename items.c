@@ -345,7 +345,7 @@ int do_item_replace(item *it, item *new_it) {
 }
 
 /*@null@*/
-char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int offset, const unsigned int lru, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -355,11 +355,16 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
-    it = heads[slabs_clsid];
+    it = lru?tails[slabs_clsid]:heads[slabs_clsid];
 
     buffer = malloc((size_t)memlimit);
     if (buffer == 0) return NULL;
     bufcurr = 0;
+
+    while (it != NULL && offset > 0) {
+        it = lru?it->prev:it->next;
+        offset--;
+    }
 
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
@@ -368,13 +373,13 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
         key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
                        key_temp, it->nbytes - 2,
-                       (unsigned long)it->exptime + process_started);
+                       it->exptime?(unsigned long)it->exptime + process_started:0);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
         memcpy(buffer + bufcurr, temp, len);
         bufcurr += len;
         shown++;
-        it = it->next;
+        it = lru?it->prev:it->next;
     }
 
     memcpy(buffer + bufcurr, "END\r\n", 6);

@@ -13,7 +13,7 @@ void do_item_update(item *it);   /** update LRU time to current and reposition *
 int  do_item_replace(item *it, item *new_it);
 
 /*@null@*/
-char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
+char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int offset, const unsigned int lru, unsigned int *bytes);
 void do_item_stats(ADD_STAT add_stats, void *c);
 /*@null@*/
 void do_item_stats_sizes(ADD_STAT add_stats, void *c);

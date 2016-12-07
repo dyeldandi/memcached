@@ -17,6 +17,7 @@ use IO::Socket::INET;
 my $host = shift;
 my $mode = shift || "display";
 my ($from, $to);
+my $order;
 
 if ($mode eq "display") {
     undef $mode if @ARGV;
@@ -28,6 +29,9 @@ if ($mode eq "display") {
     print STDERR "ERROR: parameters out of range\n\n" unless $mode;
 } elsif ($mode eq 'dump') {
     ;
+} elsif ($mode eq 'dumpkeys') {
+    $order = shift;
+    ;
 } elsif ($mode eq 'stats') {
     ;
 } else {
@@ -38,10 +42,11 @@ undef $mode if @ARGV;
 
 die
     "Usage: memcached-tool <host[:port]> [mode]\n
-       memcached-tool 10.0.0.5:11211 display    # shows slabs
-       memcached-tool 10.0.0.5:11211            # same.  (default is display)
-       memcached-tool 10.0.0.5:11211 stats      # shows general stats
-       memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
+       memcached-tool 10.0.0.5:11211 display            # shows slabs
+       memcached-tool 10.0.0.5:11211                    # same.  (default is display)
+       memcached-tool 10.0.0.5:11211 stats              # shows general stats
+       memcached-tool 10.0.0.5:11211 dump               # dumps keys and values
+       memcached-tool 10.0.0.5:11211 dumpkeys [desc]    # dumps keys
 " unless $host && $mode;
 
 $host .= ":11211" unless $host =~ /:\d+/;
@@ -68,32 +73,78 @@ if ($mode eq 'dump') {
     print STDERR "  Number of items  : $totalitems\n";
 
     foreach my $bucket (sort(keys(%items))) {
-        print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
-        print $sock "stats cachedump $bucket $items{$bucket}\r\n";
-        my %keyexp;
-        while (<$sock>) {
-            last if /^END/;
-            # return format looks like this
-            # ITEM foo [6 b; 1176415152 s]
-            if (/^ITEM (\S+) \[.* (\d+) s\]/) {
-                $keyexp{$1} = $2;
+        my $received_items = 0;
+        my $offset = 0;
+        do {
+            print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
+            print $sock "stats cachedump $bucket 0 $offset\r\n";
+            $received_items = 0;
+            my %keyexp;
+            while (<$sock>) {
+                last if /^END/;
+                # return format looks like this
+                # ITEM foo [6 b; 1176415152 s]
+                if (/^ITEM (\S+) \[.* (\d+) s\]/) {
+                    $keyexp{$1} = $2;
+                    $received_items++;
+                }
             }
-        }
+            foreach my $k (keys(%keyexp)) {
+                print $sock "get $k\r\n";
+                my $response = <$sock>;
+                if ($response =~ /VALUE (\S+) (\d+) (\d+)/) {
+                    my $flags = $2;
+                    my $len = $3;
+                    my $val;
+                    read $sock, $val, $len;
+                    print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
+                    # get the END
+                    $_ = <$sock>;
+                    $_ = <$sock>;
+                }
+            }
+            $offset += $received_items;
+        } while ($received_items > 0);
 
-        foreach my $k (keys(%keyexp)) {
-            print $sock "get $k\r\n";
-            my $response = <$sock>;
-            if ($response =~ /VALUE (\S+) (\d+) (\d+)/) {
-                my $flags = $2;
-                my $len = $3;
-                my $val;
-                read $sock, $val, $len;
-                print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
-                # get the END
-                $_ = <$sock>;
-                $_ = <$sock>;
-            }
+    }
+    exit;
+}
+
+if ($mode eq 'dumpkeys') {
+    my %items;
+    my $totalitems;
+
+    print $sock "stats items\r\n";
+
+    while (<$sock>) {
+        last if /^END/;
+        if (/^STAT items:(\d*):number (\d*)/) {
+            $items{$1} = $2;
+            $totalitems += $2;
         }
+    }
+    print STDERR "Dumping memcache keys\n";
+    print STDERR "  Number of buckets: " . scalar(keys(%items)) . "\n";
+    print STDERR "  Number of items  : $totalitems\n";
+
+    foreach my $bucket (sort(keys(%items))) {
+        my $received_items = 0;
+        my $offset = 0;
+        do {
+            print STDERR "Dumping bucket $bucket - offset $offset of " . $items{$bucket} . " total items\n";
+            print $sock "stats cachedump $bucket 0 $offset".($order eq 'desc'?' 1':'')."\r\n";
+            $received_items = 0;
+            while (<$sock>) {
+                last if /^END/;
+                # return format looks like this
+                # ITEM foo [6 b; 1176415152 s]
+                if (/^ITEM (\S+) \[.* (\d+) s\]/) {
+                    print "$_";
+                    $received_items++;
+                }
+            }
+            $offset += $received_items;
+        } while ($received_items > 0);
     }
     exit;
 }

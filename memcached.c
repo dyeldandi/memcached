@@ -2469,7 +2469,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
         char *buf;
-        unsigned int bytes, id, limit = 0;
+        unsigned int bytes, id, limit = 0, offset = 0, lru = 0;
 
         if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
@@ -2482,12 +2482,22 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
+        if (ntokens >= 6 && !safe_strtoul(tokens[4].value, &offset)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+ 
+        if (ntokens >= 7 && !safe_strtoul(tokens[5].value, &lru)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
         if (id >= POWER_LARGEST) {
             out_string(c, "CLIENT_ERROR Illegal slab id");
             return;
         }
 
-        buf = item_cachedump(id, limit, &bytes);
+        buf = item_cachedump(id, limit, offset, lru, &bytes);
         write_and_free(c, buf, bytes);
         return ;
     } else {
